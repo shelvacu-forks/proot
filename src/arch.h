@@ -31,7 +31,7 @@
 typedef unsigned long word_t;
 typedef unsigned char byte_t;
 
-typedef signed log syscall_t;
+typedef signed long syscall_t;
 
 #define SYSCALL_AVOIDER ((syscall_t) -2)
 #define SYSTRAP_NUM SYSARG_NUM
