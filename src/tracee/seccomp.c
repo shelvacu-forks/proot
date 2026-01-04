@@ -240,7 +240,6 @@ static int handle_seccomp_event_common(Tracee *tracee)
 	case PR_statfs:
 	{
 		int size;
-		int status;
 		char path[PATH_MAX];
 		char original[PATH_MAX];
 		char devshm_path[PATH_MAX];
@@ -541,27 +540,35 @@ static int handle_seccomp_event_common(Tracee *tracee)
 		sxid = peek_reg(tracee, CURRENT, SYSARG_3);
 		if (sysnum == PR_setresuid)
 			ret = getresuid(&rxid_, &exid_, &sxid_);
-		else if (sysnum == PR_setresgid)
+		else // sysnum == PR_setresgid
 			ret = getresgid(&rxid_, &exid_, &sxid_);
 		if (ret) {  // EFAULT = address outside address space
 			set_result_after_seccomp(tracee, -EPERM);
 			break;
 		}
 		ret = 0;
-		if (rxid != rxid_ && rxid != -1)
+                gid_t bad = (gid_t) -1;
+		if (rxid != rxid_ && rxid != bad)
 			ret = -EPERM;
-		if (exid != exid_ && exid != -1)
+		if (exid != exid_ && exid != bad)
 			ret = -EPERM;
-		if (sxid != sxid_ && sxid != -1)
+		if (sxid != sxid_ && sxid != bad)
 			ret = -EPERM;
 		set_result_after_seccomp(tracee, ret);
 		break;
 	}
 
 	case PR_set_robust_list:
-	default:
+        {
 		/* Set errno to -ENOSYS */
 		set_result_after_seccomp(tracee, -ENOSYS);
+                break;
+        }
+
+	default:
+                // not all syscalls are specified to return an error; ex: `alarm` *always* returns the value of the previous alarm, or 0
+                // categorizing all the syscalls into whether they should have a negative return or a SIGSYS or something else would be a lot of work. Fortunately, we're only here *because* the host's seccomp policies already made that decision, and decided it should be SIGSYS. We have no reason to think that was incorrect.
+                return SIGSYS;
 	}
 
 	return 0;

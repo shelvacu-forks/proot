@@ -361,6 +361,8 @@ int push_specific_regs(Tracee *tracee, bool including_sysnum)
 				return status;
 			}
 		}
+#    else
+                (void)including_sysnum;
 #    endif
 
 		status = ptrace(PTRACE_SETREGS, tracee->pid, NULL, &tracee->_regs[CURRENT]);

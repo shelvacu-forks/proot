@@ -31,7 +31,9 @@
 typedef unsigned long word_t;
 typedef unsigned char byte_t;
 
-#define SYSCALL_AVOIDER ((word_t) -2)
+typedef signed log syscall_t;
+
+#define SYSCALL_AVOIDER ((syscall_t) -2)
 #define SYSTRAP_NUM SYSARG_NUM
 
 #if !defined(ARCH_X86_64) && !defined(ARCH_ARM_EABI) && !defined(ARCH_X86) && !defined(ARCH_SH4)
@@ -109,7 +111,7 @@ typedef unsigned char byte_t;
     /* The syscall number has to be valid on ARM, so use tuxcall(2) as
      * the "void" syscall since it has no side effects.  */
     #undef SYSCALL_AVOIDER
-    #define SYSCALL_AVOIDER ((word_t) 222)
+    #define SYSCALL_AVOIDER ((syscall_t) 222)
 
 #elif defined(ARCH_ARM64)
 
@@ -147,7 +149,7 @@ typedef unsigned char byte_t;
     /* Syscall -2 appears to cause some odd side effects, use -1. */
     /* See https://github.com/termux/termux-packages/pull/390 */
     #undef SYSCALL_AVOIDER
-    #define SYSCALL_AVOIDER ((word_t) -1)
+    #define SYSCALL_AVOIDER ((syscall_t) -1)
 
 #elif defined(ARCH_X86)
 
