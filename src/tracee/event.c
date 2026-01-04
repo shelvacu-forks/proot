@@ -660,7 +660,9 @@ int handle_tracee_event(Tracee *tracee, int tracee_status)
 					tracee->skip_next_seccomp_signal = false;
 					signal = 0;
 				} else {
+                                        VERBOSE(tracee, 4, "calling handle_seccomp_event");
 					signal = handle_seccomp_event(tracee);
+                                        VERBOSE(tracee, 4, "handle_seccomp_event set signal = %d", signal);
 				}
 			} else {
 				VERBOSE(tracee, 1, "non-seccomp SIGSYS");
