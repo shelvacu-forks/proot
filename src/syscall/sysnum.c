@@ -78,7 +78,7 @@ static void get_sysnums(Abi abi, Sysnums *sysnums)
 /**
  * Return the neutral value of @sysnum from the given @abi.
  */
-static Sysnum translate_sysnum(Abi abi, word_t sysnum)
+static Sysnum translate_sysnum(Abi abi, syscall_t sysnum)
 {
 	Sysnums sysnums;
 	word_t index;
@@ -101,7 +101,7 @@ static Sysnum translate_sysnum(Abi abi, word_t sysnum)
 /**
  * Return the architecture value of @sysnum for the given @abi.
  */
-word_t detranslate_sysnum(Abi abi, Sysnum sysnum)
+syscall_t detranslate_sysnum(Abi abi, Sysnum sysnum)
 {
 	Sysnums sysnums;
 	size_t i;

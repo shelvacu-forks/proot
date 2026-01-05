@@ -112,7 +112,7 @@ e:getresgid32
 e:getresuid
 e:getresuid32
 e:getrlimit
-+:get_robust_list -- EPERM
+e:get_robust_list
 e:getrusage
 e:getsid
 e:getsockname
