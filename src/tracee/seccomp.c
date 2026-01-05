@@ -566,7 +566,6 @@ static int handle_seccomp_event_common(Tracee *tracee)
                 break;
         }
 
-        case PR_mpx:
 	case PR_set_robust_list:
         case PR_void:
 	case PR_acct:
@@ -598,9 +597,7 @@ static int handle_seccomp_event_common(Tracee *tracee)
 	case PR_epoll_create:
 	case PR_epoll_create1:
 	case PR_epoll_ctl:
-	case PR_epoll_ctl_old:
 	case PR_epoll_pwait:
-	case PR_epoll_wait_old:
 	case PR_eventfd:
 	case PR_eventfd2:
 	case PR_execve:
@@ -660,7 +657,6 @@ static int handle_seccomp_event_common(Tracee *tracee)
 	case PR_get_thread_area:
 	case PR_gettimeofday:
 	case PR_getxattr:
-	case PR_idle:
 	case PR_init_module:
 	case PR_inotify_add_watch:
 	case PR_inotify_init:
@@ -927,7 +923,7 @@ static int handle_seccomp_event_common(Tracee *tracee)
         case PR_sigreturn:
         case PR_rt_sigreturn:
         {
-                return SIGSEG;
+                return SIGSEGV;
         }
 
         // Not really sure what else to do with these...
