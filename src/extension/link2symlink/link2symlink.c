@@ -7,6 +7,8 @@
 #include <errno.h>     /* E*, */
 #include <limits.h>    /* PATH_MAX, */
 #include <ctype.h>     /* isdigit, */
+#include <assert.h>    /* assert() */
+#include <dirent.h>    /* DT_* */
 
 #include "cli/note.h"
 #include "extension/extension.h"
@@ -20,13 +22,33 @@
 #include "arch.h"
 #include "attribute.h"
 
+
 #ifdef USERLAND
-#define PREFIX ".proot.l2s."
-#endif 
-#ifndef USERLAND
-#define PREFIX ".l2s."
-#endif 
+#  define PREFIX ".proot.l2s."
+#else 
+#  define PREFIX ".l2s."
+#endif
+
 #define DELETED_SUFFIX " (deleted)"
+
+struct linux_dirent {
+        unsigned long   d_ino;
+        unsigned long   d_off;
+        unsigned short  d_reclen;
+        char            d_name[];
+};
+
+typedef struct linux_dirent linux_dirent_t;
+
+struct linux_dirent64 {
+        uint64_t        d_ino;
+        int64_t         d_off;
+        unsigned short  d_reclen;
+        unsigned char   d_type;
+        char            d_name[];
+};
+
+typedef struct linux_dirent64 linux_dirent64_t;
 
 static int decrement_link_count(Tracee *tracee, Reg sysarg);
 
@@ -367,8 +389,7 @@ static int handle_sysexit_end(Tracee *tracee)
 				if (strlen(original) > strlen(DELETED_SUFFIX) &&
 						strcmp(original + strlen(original) - strlen(DELETED_SUFFIX), DELETED_SUFFIX) == 0)
 					original[strlen(original) - strlen(DELETED_SUFFIX)] = '\0';
-			#endif
-			#ifdef USERLAND
+			#else
 				size = read_string(tracee, original, peek_reg(tracee, CURRENT, SYSARG_2), PATH_MAX);
 				if (size < 0)
 					return size;
@@ -452,6 +473,106 @@ static int handle_sysexit_end(Tracee *tracee)
 
 		return 0;
 	}
+
+        case PR_getdents64:
+        case PR_getdents:
+        {
+                int res;
+		/* Override only if the syscall succeeded. */
+		int syscall_result = peek_reg(tracee, CURRENT, SYSARG_RESULT);
+		if (syscall_result < 0)
+			return 0;
+                if (syscall_result == 0) //then there are no entries that need to be changed
+                        return 0;
+
+                size_t d_reclen_offset = sysnum == PR_getdents64 ? offsetof(linux_dirent64_t, d_reclen) : offsetof(linux_dirent_t, d_reclen);
+                size_t d_name_offset   = sysnum == PR_getdents64 ? offsetof(linux_dirent64_t, d_name  ) : offsetof(linux_dirent_t, d_name  );
+                
+                int dirfd = peek_reg(tracee, ORIGINAL, SYSARG_1);
+                word_t result_buf = peek_reg(tracee, ORIGINAL, SYSARG_2);
+                int offset = 0;
+                while (offset < syscall_result) {
+                    word_t this_dirent = result_buf + offset;
+                    unsigned short d_reclen;
+                    res = read_data(tracee, &d_reclen, this_dirent + d_reclen_offset, sizeof(d_reclen));
+                    if (res < 0) {
+                      note(tracee, ERROR, INTERNAL, "link2symlink handle_sysexit_end for getdents/getdents64: This memory should be valid");
+                      return res;
+                    }
+                    offset += d_reclen;
+
+                    char d_type;
+                    word_t d_type_ptr;
+                    if (sysnum == PR_getdents64) {
+                      d_type_ptr = this_dirent + offsetof(linux_dirent64_t, d_type);
+                    } else { // sysnum == PR_getdents
+                      d_type_ptr = this_dirent + d_reclen - 1;
+                    }
+                    res = read_data(tracee, &d_type, d_type_ptr, sizeof(d_type));
+                    if (res < 0) {
+                      note(tracee, ERROR, INTERNAL, "link2symlink handle_sysexit_end for getdents/getdents64: This memory should be valid");
+                      return res;
+                    }
+                    if (d_type != DT_LNK) {
+                      // we don't need to modify this one
+                      continue;
+                    }
+
+                    char d_name[PATH_MAX];
+                    size_t d_name_length = d_reclen - d_name_offset - 1;
+                    assert(d_name_length <= sizeof(d_name));
+                    res = read_data(tracee, d_name, this_dirent + d_name_offset, d_name_length);
+                    if (res < 0) {
+                      note(tracee, ERROR, INTERNAL, "link2symlink handle_sysexit_end for getdents/getdents64: This memory should be valid");
+                      return res;
+                    }
+
+                    char intermediate[PATH_MAX];
+                    char finalPath[PATH_MAX];
+                    char* name;
+                    res = readlinkat(dirfd, d_name, intermediate, PATH_MAX);
+                    if (res < 0)
+                      return res;
+                    if (res == PATH_MAX)
+                      return -EFAULT;
+                    intermediate[res] = '\0';
+
+                    name = strrchr(intermediate, '/');
+                    if (name == NULL)
+                            name = intermediate;
+                    else
+                            name++;
+
+                    if (strncmp(name, PREFIX, strlen(PREFIX)) != 0)
+                            return 0;
+                    int size = my_readlink(intermediate, finalPath);
+                    if (size < 0)
+                            return size;
+
+                    struct stat finalStat;
+                    int status = lstat(finalPath,&finalStat);
+                    if (status < 0)
+                            return status;
+                    mode_t mode = finalStat.st_mode;
+                    unsigned char new_dtype = DT_UNKNOWN;
+                    if (S_ISREG(mode))
+                      new_dtype = DT_REG;
+                    if (S_ISDIR(mode))
+                      new_dtype = DT_DIR;
+                    if (S_ISCHR(mode))
+                      new_dtype = DT_CHR;
+                    if (S_ISBLK(mode))
+                      new_dtype = DT_BLK;
+                    if (S_ISFIFO(mode))
+                      new_dtype = DT_FIFO;
+                    if (S_ISLNK(mode))
+                      new_dtype = DT_LNK;
+                    if (S_ISSOCK(mode))
+                      new_dtype = DT_SOCK;
+                    write_data(tracee, d_type_ptr, &new_dtype, sizeof(new_dtype));
+                }
+                return 0;
+        }
 
 	default:
 		return 0;
