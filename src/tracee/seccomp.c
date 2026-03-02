@@ -558,6 +558,22 @@ static int handle_seccomp_event_common(Tracee *tracee)
 		break;
 	}
 
+        case PR_alarm:
+        {
+                word_t seconds = peek_reg(tracee, CURRENT, SYSARG_1);
+                struct itimerval timerspec = { .it_value.tv_sec = seconds };
+                word_t timerspec_ptr = alloc_mem(tracee, sizeof(timerspec));
+                int res = write_data(tracee, timerspec_ptr, &timerspec, sizeof(timerspec));
+                if (res < 0)
+                  return res;
+                set_sysnum(tracee, PR_setitimer);
+                poke_reg(tracee, SYSARG_1, ITIMER_REAL);
+                poke_reg(tracee, SYSARG_2, timerspec_ptr);
+                poke_reg(tracee, SYSARG_3, 0);
+                restart_syscall_after_seccomp(tracee);
+                break;
+        }
+
         // Android prefers to give SIGSYS for all the syscalls it blocks with SECCOMP, even when you can return an error instead.
         case PR_idle:
 	case PR_accept4:
@@ -931,7 +947,6 @@ static int handle_seccomp_event_common(Tracee *tracee)
         case PR_exit_group:
         case PR_restart_syscall:
         // These syscalls "never fail" by spec; the only consistent thing to do is kill the program
-	case PR_alarm:
 	case PR_getegid:
 	case PR_getegid32:
 	case PR_geteuid:

@@ -356,6 +356,8 @@ int event_loop()
 		}
 
 		signal = handle_tracee_event(tracee, tracee_status);
+                if (signal != 0)
+                  VERBOSE(tracee, 1, "restarting tracee with signal %d", signal);
 		(void) restart_tracee(tracee, signal);
 	}
 

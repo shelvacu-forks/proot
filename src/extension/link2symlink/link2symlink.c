@@ -478,6 +478,7 @@ static int handle_sysexit_end(Tracee *tracee)
         case PR_getdents:
         {
                 int res;
+                note(tracee, INFO, INTERNAL, "l2s: handling getdents/getdents64");
 		/* Override only if the syscall succeeded. */
 		int syscall_result = peek_reg(tracee, CURRENT, SYSARG_RESULT);
 		if (syscall_result < 0)
@@ -488,17 +489,27 @@ static int handle_sysexit_end(Tracee *tracee)
                 size_t d_reclen_offset = sysnum == PR_getdents64 ? offsetof(linux_dirent64_t, d_reclen) : offsetof(linux_dirent_t, d_reclen);
                 size_t d_name_offset   = sysnum == PR_getdents64 ? offsetof(linux_dirent64_t, d_name  ) : offsetof(linux_dirent_t, d_name  );
                 
-                int dirfd = peek_reg(tracee, ORIGINAL, SYSARG_1);
+                int tracee_dirfd = peek_reg(tracee, ORIGINAL, SYSARG_1);
                 word_t result_buf = peek_reg(tracee, ORIGINAL, SYSARG_2);
+
+                char dir_path[PATH_MAX];
+                res = readlink_proc_pid_fd(tracee->pid, tracee_dirfd, dir_path);
+                if (res < 0)
+                  return res;
+                int dirfd = open(dir_path, 0);
                 int offset = 0;
+                int return_value = 0;
                 while (offset < syscall_result) {
                     word_t this_dirent = result_buf + offset;
                     unsigned short d_reclen;
+                    note(tracee, INFO, INTERNAL, "trying to read reclen");
                     res = read_data(tracee, &d_reclen, this_dirent + d_reclen_offset, sizeof(d_reclen));
                     if (res < 0) {
                       note(tracee, ERROR, INTERNAL, "link2symlink handle_sysexit_end for getdents/getdents64: This memory should be valid");
-                      return res;
+                      return_value = 0;
+                      goto cleanup;
                     }
+                    note(tracee, INFO, INTERNAL, "reclen = %hu", d_reclen);
                     offset += d_reclen;
 
                     char d_type;
@@ -511,8 +522,10 @@ static int handle_sysexit_end(Tracee *tracee)
                     res = read_data(tracee, &d_type, d_type_ptr, sizeof(d_type));
                     if (res < 0) {
                       note(tracee, ERROR, INTERNAL, "link2symlink handle_sysexit_end for getdents/getdents64: This memory should be valid");
-                      return res;
+                      return_value = res;
+                      goto cleanup;
                     }
+                    note(tracee, INFO, INTERNAL, "d_type = %hhd", d_type);
                     if (d_type != DT_LNK) {
                       // we don't need to modify this one
                       continue;
@@ -524,36 +537,55 @@ static int handle_sysexit_end(Tracee *tracee)
                     res = read_data(tracee, d_name, this_dirent + d_name_offset, d_name_length);
                     if (res < 0) {
                       note(tracee, ERROR, INTERNAL, "link2symlink handle_sysexit_end for getdents/getdents64: This memory should be valid");
-                      return res;
+                      return_value = res;
+                      goto cleanup;
                     }
+                    note(tracee, INFO, INTERNAL, "d_name = %s", d_name);
 
                     char intermediate[PATH_MAX];
                     char finalPath[PATH_MAX];
                     char* name;
+                    note(tracee, INFO, INTERNAL, "readlinkat-ing d_name");
                     res = readlinkat(dirfd, d_name, intermediate, PATH_MAX);
-                    if (res < 0)
-                      return res;
-                    if (res == PATH_MAX)
-                      return -EFAULT;
+                    note(tracee, INFO, INTERNAL, "readlinkat returned %d", res);
+                    if (res < 0) {
+                      return_value = -errno;
+                      goto cleanup;
+                    }
+                    if (res == PATH_MAX) {
+                      return_value = -EFAULT;
+                    }
                     intermediate[res] = '\0';
+                    note(tracee, INFO, INTERNAL, "intermediate = %s", intermediate);
 
                     name = strrchr(intermediate, '/');
                     if (name == NULL)
                             name = intermediate;
                     else
                             name++;
+                    note(tracee, INFO, INTERNAL, "name = %s", name);
 
                     if (strncmp(name, PREFIX, strlen(PREFIX)) != 0)
-                            return 0;
+                            continue;
+                    note(tracee, INFO, INTERNAL, "my_readlink(intermediate, finalPath)");
                     int size = my_readlink(intermediate, finalPath);
-                    if (size < 0)
-                            return size;
+                    note(tracee, INFO, INTERNAL, "my_readlink returned %d", size);
+                    if (size < 0) {
+                      return_value = size;
+                      goto cleanup;
+                    }
+                    note(tracee, INFO, INTERNAL, "finalPath = %s", finalPath);
 
                     struct stat finalStat;
-                    int status = lstat(finalPath,&finalStat);
-                    if (status < 0)
-                            return status;
+                    note(tracee, INFO, INTERNAL, "lstat(finalPath, &finalStat)");
+                    int status = lstat(finalPath, &finalStat);
+                    note(tracee, INFO, INTERNAL, "lstat returned %d", status);
+                    if (status < 0) {
+                      return_value = status;
+                      goto cleanup;
+                    }
                     mode_t mode = finalStat.st_mode;
+                    note(tracee, INFO, INTERNAL, "mode = %d", mode);
                     unsigned char new_dtype = DT_UNKNOWN;
                     if (S_ISREG(mode))
                       new_dtype = DT_REG;
@@ -569,9 +601,18 @@ static int handle_sysexit_end(Tracee *tracee)
                       new_dtype = DT_LNK;
                     if (S_ISSOCK(mode))
                       new_dtype = DT_SOCK;
-                    write_data(tracee, d_type_ptr, &new_dtype, sizeof(new_dtype));
+                    note(tracee, INFO, INTERNAL, "new_dtype = %hhu", new_dtype);
+                    res = write_data(tracee, d_type_ptr, &new_dtype, sizeof(new_dtype));
+                    if (res < 0) {
+                      return_value = res;
+                      goto cleanup;
+                    }
+                    note(tracee, INFO, INTERNAL, "All good!");
                 }
-                return 0;
+
+                cleanup:
+                close(dirfd);
+                return return_value;
         }
 
 	default:
@@ -794,6 +835,8 @@ int link2symlink_callback(Extension *extension, ExtensionEvent event,
 			{ PR_rename,		FILTER_SYSEXIT },
 			{ PR_renameat,		FILTER_SYSEXIT },
 			{ PR_renameat2,		FILTER_SYSEXIT },
+			{ PR_getdents,		FILTER_SYSEXIT },
+			{ PR_getdents64,	FILTER_SYSEXIT },
 			FILTERED_SYSNUM_END,
 		};
 		extension->filtered_sysnums = filtered_sysnums;
