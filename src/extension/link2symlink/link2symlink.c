@@ -478,7 +478,7 @@ static int handle_sysexit_end(Tracee *tracee)
         case PR_getdents:
         {
                 int res;
-                note(tracee, INFO, INTERNAL, "l2s: handling getdents/getdents64");
+                // note(tracee, INFO, INTERNAL, "l2s: handling getdents/getdents64");
 		/* Override only if the syscall succeeded. */
 		int syscall_result = peek_reg(tracee, CURRENT, SYSARG_RESULT);
 		if (syscall_result < 0)
@@ -502,14 +502,14 @@ static int handle_sysexit_end(Tracee *tracee)
                 while (offset < syscall_result) {
                     word_t this_dirent = result_buf + offset;
                     unsigned short d_reclen;
-                    note(tracee, INFO, INTERNAL, "trying to read reclen");
+                    // note(tracee, INFO, INTERNAL, "trying to read reclen");
                     res = read_data(tracee, &d_reclen, this_dirent + d_reclen_offset, sizeof(d_reclen));
                     if (res < 0) {
                       note(tracee, ERROR, INTERNAL, "link2symlink handle_sysexit_end for getdents/getdents64: This memory should be valid");
                       return_value = 0;
                       goto cleanup;
                     }
-                    note(tracee, INFO, INTERNAL, "reclen = %hu", d_reclen);
+                    // note(tracee, INFO, INTERNAL, "reclen = %hu", d_reclen);
                     offset += d_reclen;
 
                     char d_type;
@@ -525,7 +525,7 @@ static int handle_sysexit_end(Tracee *tracee)
                       return_value = res;
                       goto cleanup;
                     }
-                    note(tracee, INFO, INTERNAL, "d_type = %hhd", d_type);
+                    // note(tracee, INFO, INTERNAL, "d_type = %hhd", d_type);
                     if (d_type != DT_LNK) {
                       // we don't need to modify this one
                       continue;
@@ -540,14 +540,14 @@ static int handle_sysexit_end(Tracee *tracee)
                       return_value = res;
                       goto cleanup;
                     }
-                    note(tracee, INFO, INTERNAL, "d_name = %s", d_name);
+                    // note(tracee, INFO, INTERNAL, "d_name = %s", d_name);
 
                     char intermediate[PATH_MAX];
                     char finalPath[PATH_MAX];
                     char* name;
-                    note(tracee, INFO, INTERNAL, "readlinkat-ing d_name");
+                    // note(tracee, INFO, INTERNAL, "readlinkat-ing d_name");
                     res = readlinkat(dirfd, d_name, intermediate, PATH_MAX);
-                    note(tracee, INFO, INTERNAL, "readlinkat returned %d", res);
+                    // note(tracee, INFO, INTERNAL, "readlinkat returned %d", res);
                     if (res < 0) {
                       return_value = -errno;
                       goto cleanup;
@@ -556,36 +556,36 @@ static int handle_sysexit_end(Tracee *tracee)
                       return_value = -EFAULT;
                     }
                     intermediate[res] = '\0';
-                    note(tracee, INFO, INTERNAL, "intermediate = %s", intermediate);
+                    // note(tracee, INFO, INTERNAL, "intermediate = %s", intermediate);
 
                     name = strrchr(intermediate, '/');
                     if (name == NULL)
                             name = intermediate;
                     else
                             name++;
-                    note(tracee, INFO, INTERNAL, "name = %s", name);
+                    // note(tracee, INFO, INTERNAL, "name = %s", name);
 
                     if (strncmp(name, PREFIX, strlen(PREFIX)) != 0)
                             continue;
-                    note(tracee, INFO, INTERNAL, "my_readlink(intermediate, finalPath)");
+                    // note(tracee, INFO, INTERNAL, "my_readlink(intermediate, finalPath)");
                     int size = my_readlink(intermediate, finalPath);
-                    note(tracee, INFO, INTERNAL, "my_readlink returned %d", size);
+                    // note(tracee, INFO, INTERNAL, "my_readlink returned %d", size);
                     if (size < 0) {
                       return_value = size;
                       goto cleanup;
                     }
-                    note(tracee, INFO, INTERNAL, "finalPath = %s", finalPath);
+                    // note(tracee, INFO, INTERNAL, "finalPath = %s", finalPath);
 
                     struct stat finalStat;
-                    note(tracee, INFO, INTERNAL, "lstat(finalPath, &finalStat)");
+                    // note(tracee, INFO, INTERNAL, "lstat(finalPath, &finalStat)");
                     int status = lstat(finalPath, &finalStat);
-                    note(tracee, INFO, INTERNAL, "lstat returned %d", status);
+                    // note(tracee, INFO, INTERNAL, "lstat returned %d", status);
                     if (status < 0) {
                       return_value = status;
                       goto cleanup;
                     }
                     mode_t mode = finalStat.st_mode;
-                    note(tracee, INFO, INTERNAL, "mode = %d", mode);
+                    // note(tracee, INFO, INTERNAL, "mode = %d", mode);
                     unsigned char new_dtype = DT_UNKNOWN;
                     if (S_ISREG(mode))
                       new_dtype = DT_REG;
@@ -601,7 +601,7 @@ static int handle_sysexit_end(Tracee *tracee)
                       new_dtype = DT_LNK;
                     if (S_ISSOCK(mode))
                       new_dtype = DT_SOCK;
-                    note(tracee, INFO, INTERNAL, "new_dtype = %hhu", new_dtype);
+                    // note(tracee, INFO, INTERNAL, "new_dtype = %hhu", new_dtype);
                     res = write_data(tracee, d_type_ptr, &new_dtype, sizeof(new_dtype));
                     if (res < 0) {
                       return_value = res;
@@ -621,7 +621,7 @@ static int handle_sysexit_end(Tracee *tracee)
                       return_value = res;
                       goto cleanup;
                     }
-                    note(tracee, INFO, INTERNAL, "All good!");
+                    // note(tracee, INFO, INTERNAL, "All good!");
                 }
 
                 cleanup:
