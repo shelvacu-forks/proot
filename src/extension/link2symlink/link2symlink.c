@@ -607,6 +607,20 @@ static int handle_sysexit_end(Tracee *tracee)
                       return_value = res;
                       goto cleanup;
                     }
+                    word_t d_ino_ptr;
+                    if (sysnum == PR_getdents64) {
+                      uint64_t new_ino = finalStat.st_ino;
+                      d_ino_ptr = this_dirent + offsetof(linux_dirent64_t, d_ino);
+                      res = write_data(tracee, d_ino_ptr, &new_ino, sizeof(((linux_dirent64_t*)0)->d_ino));
+                    } else { // sysnum == PR_getdents
+                      uint32_t new_ino = finalStat.st_ino;
+                      d_ino_ptr = this_dirent + offsetof(linux_dirent_t, d_ino);
+                      res = write_data(tracee, d_ino_ptr, &new_ino, sizeof(((linux_dirent_t*)0)->d_ino));
+                    }
+                    if (res < 0) {
+                      return_value = res;
+                      goto cleanup;
+                    }
                     note(tracee, INFO, INTERNAL, "All good!");
                 }
 
